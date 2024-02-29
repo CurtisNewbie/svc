@@ -28,9 +28,7 @@ func VerAfter(ver1 string, ver2 string) bool {
 }
 
 func SplitVer(ver string) []string {
-	if strings.HasPrefix(ver, "v") {
-		ver = ver[1:]
-	}
+	ver = strings.TrimPrefix(ver, "v")
 	return strings.Split(ver, VerSep)
 }
 
