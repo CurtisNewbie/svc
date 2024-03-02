@@ -29,6 +29,7 @@ func VerAfter(ver1 string, ver2 string) bool {
 
 func SplitVer(ver string) []string {
 	ver = strings.TrimPrefix(ver, "v")
+	ver = strings.TrimSuffix(ver, ".sql")
 	return strings.Split(ver, VerSep)
 }
 
