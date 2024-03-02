@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"embed"
 	"fmt"
 	"testing"
 
@@ -36,6 +37,9 @@ func TestVerAfter(t *testing.T) {
 	}
 }
 
+//go:embed schema/svc/*.sql
+var schemaFs embed.FS
+
 func TestMigrate(t *testing.T) {
 	user := "root"
 	pw := ""
@@ -49,7 +53,7 @@ func TestMigrate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = MigrateSchema(conn.Debug(), "test", PrintLogger{})
+	err = MigrateSchema(conn, PrintLogger{}, "test", schemaFs, "schema/svc")
 	if err != nil {
 		t.Fatal(err)
 	}

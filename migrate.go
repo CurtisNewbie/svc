@@ -1,7 +1,7 @@
 package svc
 
 import (
-	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -11,21 +11,28 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	baseDir = "schema/svc"
-)
-
-//go:embed schema/svc/*.sql
-var schemaFs embed.FS
-
-type SchemaVersion struct {
-	Id      int64
-	Script  string
-	Success bool
-	Remark  string
+// Interface that impls both fs.ReadFileFS and fs.ReadDirFS
+//
+// e.g.,
+//
+//	//go:embed schema/svc/*.sql
+//	var schemaFs embed.FS
+type Fs interface {
+	fs.ReadFileFS
+	fs.ReadDirFS
 }
 
-func MigrateSchema(db *gorm.DB, app string, log Logger) error {
+func MigrateSchema(db *gorm.DB, log Logger, app string, fs Fs, baseDir string) error {
+	if fs == nil {
+		return errors.New("fs is nil")
+	}
+	if log == nil {
+		return errors.New("log is nil")
+	}
+	if db == nil {
+		return errors.New("db is nil")
+	}
+
 	err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_version (
 			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -42,7 +49,7 @@ func MigrateSchema(db *gorm.DB, app string, log Logger) error {
 		return fmt.Errorf("failed to create schema_verion table, %w", err)
 	}
 
-	lastVer := new(SchemaVersion)
+	lastVer := new(schemaVersion)
 	t := db.Raw(`
 		SELECT id, script, success, remark
 		FROM schema_version
@@ -57,7 +64,7 @@ func MigrateSchema(db *gorm.DB, app string, log Logger) error {
 		return fmt.Errorf("previous schema migration was failed, last attempt was '%v' (%v), please fix the execution manually and update the last 'schema_version' record status (id: %v)", lastVer.Script, lastVer.Remark, lastVer.Id)
 	}
 
-	files, err := schemaFs.ReadDir(baseDir)
+	files, err := fs.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -77,17 +84,17 @@ func MigrateSchema(db *gorm.DB, app string, log Logger) error {
 	}
 	for _, f := range files {
 		name := f.Name()
-		log.Infof("curr: %v, last: %v", name, last)
+		// log.Infof("curr: %v, last: %v", name, last)
 		if last != "" && !VerAfter(name, last) {
 			continue
 		}
 		fpath := baseDir + "/" + name
-		content, err := fs.ReadFile(schemaFs, fpath)
+		content, err := fs.ReadFile(fpath)
 		if err != nil {
 			return fmt.Errorf("failed to fs.ReadFile, %v, %w", fpath, err)
 		}
 
-		if err := RunSQLFile(db, log, app, content, name); err != nil {
+		if err := runSQLFile(db, log, app, content, name); err != nil {
 			return fmt.Errorf("failed to exec sql file %v, %w", name, err)
 		}
 		last = name
@@ -95,11 +102,18 @@ func MigrateSchema(db *gorm.DB, app string, log Logger) error {
 	return nil
 }
 
-func RunSQLFile(db *gorm.DB, log Logger, app string, content []byte, fname string) error {
+type schemaVersion struct {
+	Id      int64
+	Script  string
+	Success bool
+	Remark  string
+}
+
+func runSQLFile(db *gorm.DB, log Logger, app string, content []byte, fname string) error {
 	contentStr := string(content)
 	segments := strings.Split(contentStr, ";")
 
-	for _, seg := range segments {
+	for i, seg := range segments {
 		seg = strings.TrimSpace(seg)
 		if seg == "" {
 			continue
@@ -108,10 +122,12 @@ func RunSQLFile(db *gorm.DB, log Logger, app string, content []byte, fname strin
 			if er := saveSchemaVer(db, app, fname, false, err.Error()); er != nil {
 				log.Errorf("failed to save schema_version, %w", er)
 			}
-			return fmt.Errorf("failed to execute script, '%v', %w", seg, err)
+			return fmt.Errorf("failed to execute script, the %v segments, '%v', %w", i+1, seg, err)
+		} else {
+			log.Infof("'%v' - executed [%v]: \n\n%v\n\n", fname, i+1, seg)
 		}
 	}
-	log.Infof("Script %v executed", fname)
+	log.Infof("Script %v completed", fname)
 
 	if er := saveSchemaVer(db, app, fname, true, ""); er != nil {
 		log.Errorf("failed to save schema_version, %w", er)
