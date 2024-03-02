@@ -43,7 +43,7 @@ svc recognizes that both v0.0.1.sql and v0.0.2.sql belong to a version that is b
 The entry point of svc is:
 
 ```go
-func MigrateSchema(db *gorm.DB, log Logger, app string, fs Fs, baseDir string) error {
+func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
     // ...
 }
 ```
@@ -54,7 +54,13 @@ e.g., we may write code like the following
 //go:embed schema/*.sql
 var schemaFs embed.FS
 
-err := MigrateSchema(conn, PrintLogger{}, "test", schemaFs, "schema")
+conf := MigrateConfig{
+    App:     "test",
+    Fs:      schemaFs,
+    BaseDir: "schema/svc",
+}
+err = MigrateSchema(conn.Debug(), PrintLogger{}, conf)
+
 // ...
 ```
 
