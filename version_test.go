@@ -49,7 +49,7 @@ func TestMigrate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = MigrateSchema(conn.Debug(), PrintLogger{})
+	err = MigrateSchema(conn.Debug(), "test", PrintLogger{})
 	if err != nil {
 		t.Fatal(err)
 	}
