@@ -4,7 +4,7 @@ svc stands for schema version control, a simple tool to manage schema migration.
 
 ## How svc works
 
-svc first tries to create a table that maintain the scripts it executed:
+svc first tries to create a table to maintain the scripts it executed:
 
 ```sql
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -28,7 +28,7 @@ e.g.,
 UPDATE schema_version SET success=1 WHERE id = ?;
 ```
 
-If last execution was success, it loads all scripts files from the provided FS object. The scripts files are sorted and executed one by one only if svc considers the script file belongs to a version that is after the last execution.
+If last execution was success, it loads all scripts files from the provided `Fs` object. The scripts files are sorted and executed one by one only if svc considers the script file belongs to a version that is after the last execution.
 
 For example, the last executed file is 'v0.0.2.sql'. From the provided FS, svc found following files:
 
@@ -46,4 +46,27 @@ The entry point of svc is:
 func MigrateSchema(db *gorm.DB, log Logger, app string, fs Fs, baseDir string) error {
     // ...
 }
+```
+
+e.g., we may write code like the following
+
+```go
+//go:embed schema/*.sql
+var schemaFs embed.FS
+
+err := MigrateSchema(conn, PrintLogger{}, "test", schemaFs, "schema")
+// ...
+```
+
+Then in database:
+
+```
+> select * from schema_version;
+
++----+------+---------------------+------------+---------+--------+
+| id | app  | created_at          | script     | success | remark |
++----+------+---------------------+------------+---------+--------+
+| 30 | test | 2024-03-02 18:45:46 | v0.0.1.sql |       1 |        |
+| 31 | test | 2024-03-02 18:45:46 | v0.0.2.sql |       1 |        |
++----+------+---------------------+------------+---------+--------+
 ```
