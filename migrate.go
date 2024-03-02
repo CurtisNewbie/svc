@@ -133,6 +133,7 @@ func runSQLFile(db *gorm.DB, log Logger, app string, content []byte, fname strin
 	contentStr := string(content)
 	segments := strings.Split(contentStr, ";")
 
+	total := 0
 	for i, seg := range segments {
 		seg = strings.TrimSpace(seg)
 		if seg == "" {
@@ -146,10 +147,11 @@ func runSQLFile(db *gorm.DB, log Logger, app string, content []byte, fname strin
 		} else {
 			log.Infof("'%v' - executed [%v]: \n\n%v\n\n", fname, i+1, seg)
 		}
+		total += 1
 	}
 	log.Infof("Script %v completed", fname)
 
-	if er := saveSchemaVer(db, app, fname, true, ""); er != nil {
+	if er := saveSchemaVer(db, app, fname, true, fmt.Sprintf("Executed %d SQLs", total)); er != nil {
 		log.Errorf("failed to save schema_version, %w", er)
 	}
 	return nil
