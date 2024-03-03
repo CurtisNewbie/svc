@@ -57,7 +57,7 @@ var schemaFs embed.FS
 conf := MigrateConfig{
     App:     "test",
     Fs:      schemaFs,
-    BaseDir: "schema/svc",
+    BaseDir: "schema",
 }
 err = MigrateSchema(conn.Debug(), PrintLogger{}, conf)
 
