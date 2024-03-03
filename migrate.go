@@ -12,6 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	excluded = map[string]struct{}{}
+)
+
 // Interface that impls both fs.ReadFileFS and fs.ReadDirFS
 //
 // e.g.,
@@ -156,6 +160,9 @@ func convertSchemaFiles(last string, files []fs.DirEntry, baseDir string, fs Rea
 		if !strings.HasSuffix(name, ".sql") {
 			continue
 		}
+		if isExcluded(name) {
+			continue
+		}
 
 		if last != "" && !VerAfter(name, last) {
 			continue
@@ -211,4 +218,14 @@ func saveSchemaVer(db *gorm.DB, app string, script string, success bool, remark 
 	}
 	return db.Exec(`INSERT INTO schema_version (app, script, success, remark) VALUES (?,?,?,?)`,
 		app, script, success, string(rrm)).Error
+}
+
+func ExcludeFile(name string) {
+	excluded[name] = struct{}{}
+}
+
+func isExcluded(name string) bool {
+	name = strings.ToLower(name)
+	_, ok := excluded[name]
+	return ok
 }
