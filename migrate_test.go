@@ -31,7 +31,8 @@ func TestMigrate(t *testing.T) {
 		BaseDir: "schema/svc",
 	}
 
-	err = MigrateSchema(conn.Debug(), PrintLogger{}, conf)
+	// conn = conn.Debug()
+	err = MigrateSchema(conn, PrintLogger{}, conf)
 	if err != nil {
 		t.Fatal(err)
 	}
