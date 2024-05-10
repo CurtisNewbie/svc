@@ -76,3 +76,7 @@ Then in database:
 | 31 | test | 2024-03-02 18:45:46 | v0.0.2.sql |       1 |        |
 +----+------+---------------------+------------+---------+--------+
 ```
+
+What if the application was newly installed, and there are several SQLs files managed by svc (e.g., v0.0.1.sql, v0.0.2.sql)? In this case, we know that the application is already using the latest version, we shouldn't execute any SQL scripts at all.
+
+svc handles this by checking whether the `schema_version` table exists; if not, svc knows that we are already at the latest version, and it inserts a `schema_version` record with the last script name, pretending that we have migrated to that last version.

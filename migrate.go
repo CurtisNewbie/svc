@@ -51,6 +51,15 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		return errors.New("db is nil")
 	}
 
+	// check if the table doesn't exist at all
+	// for the first time we run svc, we know that we don't need to migrate
+	// schema, the schema we have is already the latest version
+	var firstRun = false
+	if err := db.Exec(`SELECT id FROM schema_version LIMIT 1`).Error; err != nil {
+		firstRun = true
+		log.Infof("schema_version not exists, initializing schema_version to latest one")
+	}
+
 	t := db.Exec(`
 	CREATE TABLE IF NOT EXISTS schema_version (
 		id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -61,7 +70,7 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		remark VARCHAR(256) NOT NULL DEFAULT '',
 		PRIMARY KEY (id),
 		KEY app_idx (app)
-	)`)
+	) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 comment='svc';`)
 	if t.Error != nil {
 		return fmt.Errorf("failed to create schema_verion table, %w", t.Error)
 	}
@@ -72,18 +81,20 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 	}
 
 	lastVer := new(schemaVersion)
-	t = db.Raw(`
+	if !firstRun {
+		t = db.Raw(`
 		SELECT id, script, success, remark
 		FROM schema_version
 		WHERE app = ?
 		ORDER BY id DESC LIMIT 1`, c.App).Scan(lastVer)
-	if t.Error != nil {
-		return fmt.Errorf("failed to list schema_verion, %w", t.Error)
-	}
-	if t.RowsAffected < 1 {
-		lastVer = nil
-	} else if !lastVer.Success {
-		return fmt.Errorf("previous schema migration was failed, last attempt was '%v' (%v), please fix the execution manually and update the last 'schema_version' record status (id: %v)", lastVer.Script, lastVer.Remark, lastVer.Id)
+		if t.Error != nil {
+			return fmt.Errorf("failed to list schema_verion, %w", t.Error)
+		}
+		if t.RowsAffected < 1 {
+			lastVer = nil
+		} else if !lastVer.Success {
+			return fmt.Errorf("previous schema migration was failed, last attempt was '%v' (%v), please fix the execution manually and update the last 'schema_version' record status (id: %v)", lastVer.Script, lastVer.Remark, lastVer.Id)
+		}
 	}
 
 	// e.g.,
@@ -115,6 +126,15 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 
 	schemaFiles := convertSchemaFiles(last, files, c.BaseDir, c.Fs)
 	sortSchemaFile(schemaFiles)
+
+	if firstRun && len(schemaFiles) > 0 {
+		last := schemaFiles[len(schemaFiles)-1]
+		if er := saveSchemaVer(db, c.App, last.Name, true, fmt.Sprintf("Initialized at version %v", last.Name)); er != nil {
+			log.Errorf("failed to save schema_version, %v, %w", last.Name, er)
+			return err
+		}
+		return nil
+	}
 
 	for _, sf := range schemaFiles {
 		content, err := sf.Read()
