@@ -10,6 +10,38 @@ const (
 	VerSep = "."
 )
 
+// Check if ver1 is eq to ver2.
+func VerEq(ver1 string, ver2 string) bool {
+	ver1Sp := SplitVer(ver1)
+	ver2Sp := SplitVer(ver2)
+	ver1Sp, ver2Sp = PadVers(ver1Sp, ver2Sp)
+	for i := 0; i < len(ver1Sp); i++ {
+		l := cast.ToInt(ver1Sp[i])
+		r := cast.ToInt(ver2Sp[i])
+		if l != r {
+			return false
+		}
+	}
+	return true
+}
+
+// Check if ver1 is after or eq to ver2.
+func VerAfterEq(ver1 string, ver2 string) bool {
+	ver1Sp := SplitVer(ver1)
+	ver2Sp := SplitVer(ver2)
+	ver1Sp, ver2Sp = PadVers(ver1Sp, ver2Sp)
+	for i := 0; i < len(ver1Sp); i++ {
+		l := cast.ToInt(ver1Sp[i])
+		r := cast.ToInt(ver2Sp[i])
+		if l > r {
+			return true
+		} else if l < r {
+			return false
+		}
+	}
+	return true
+}
+
 // Check if ver1 is after ver2.
 func VerAfter(ver1 string, ver2 string) bool {
 	ver1Sp := SplitVer(ver1)

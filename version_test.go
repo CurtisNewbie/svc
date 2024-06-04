@@ -31,3 +31,21 @@ func TestVerAfter(t *testing.T) {
 		t.Fatal("should return true")
 	}
 }
+
+func TestVerAfterEq(t *testing.T) {
+	if VerAfterEq("v1.1.3.4.sql", "v2.0.3.sql") {
+		t.Fatal("should return false")
+	}
+	if !VerAfterEq("v2", "v1.2.3") {
+		t.Fatal("should return true")
+	}
+	if !VerAfterEq("2.1", "1") {
+		t.Fatal("should return true")
+	}
+	if !VerAfterEq("v1", "v1.0.0") {
+		t.Fatal("should return true")
+	}
+	if !VerAfterEq("v1", "v1") {
+		t.Fatal("should return true")
+	}
+}

@@ -70,9 +70,24 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		remark VARCHAR(256) NOT NULL DEFAULT '',
 		PRIMARY KEY (id),
 		KEY app_idx (app)
-	) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 comment='svc';`)
+	) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 comment='svc schema version';`)
 	if t.Error != nil {
 		return fmt.Errorf("failed to create schema_verion table, %w", t.Error)
+	}
+
+	t = db.Exec(`
+	CREATE TABLE IF NOT EXISTS schema_script_sql (
+		id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+		app VARCHAR(50) NOT NULL DEFAULT '',
+		script VARCHAR(256) NOT NULL DEFAULT '',
+		sql_script TEXT,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		KEY app_idx (app, script)
+	) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 comment='svc schema script sqls';
+	`)
+	if t.Error != nil {
+		return fmt.Errorf("failed to create schema_script_sql table, %w", t.Error)
 	}
 
 	var last string
@@ -93,7 +108,9 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		if t.RowsAffected < 1 {
 			lastVer = nil
 		} else if !lastVer.Success {
-			return fmt.Errorf("previous schema migration was failed, last attempt was '%v' (%v), please fix the execution manually and update the last 'schema_version' record status (id: %v)", lastVer.Script, lastVer.Remark, lastVer.Id)
+			return fmt.Errorf(`previous schema migration was failed, last attempt was '%v' (%v), please fix the execution
+ manually and update the last 'schema_version' record status (id: %v)`,
+				lastVer.Script, lastVer.Remark, lastVer.Id)
 		}
 	}
 
@@ -124,7 +141,10 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		return fmt.Errorf("failed to open %v folders, %w", c.BaseDir, err)
 	}
 
-	schemaFiles := convertSchemaFiles(last, files, c.BaseDir, c.Fs)
+	schemaFiles, err := convertSchemaFiles(last, files, c.BaseDir, c.Fs)
+	if err != nil {
+		return err
+	}
 	sortSchemaFile(schemaFiles)
 
 	if firstRun && len(schemaFiles) > 0 {
@@ -136,12 +156,42 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		return nil
 	}
 
-	for _, sf := range schemaFiles {
-		content, err := sf.Read()
-		if err != nil {
-			return err
+	for i, sf := range schemaFiles {
+
+		// for the last one, check whether there are new sqls being added to the script file (e.g., during development)
+		if i == len(schemaFiles)-1 {
+			var executed []string
+			if err := db.Raw(`SELECT sql_script FROM schema_script_sql WHERE app = ? and script = ?`, c.App, sf.Name).Scan(&executed).Error; err != nil {
+				return err
+			}
+
+			// start filtering
+			if len(executed) > 0 {
+				mem := map[string]struct{}{}
+				for _, s := range executed {
+					mem[s] = struct{}{}
+				}
+
+				sqls := make([]string, 0, len(sf.SQLs))
+				for _, s := range sf.SQLs {
+					if _, ok := mem[s]; ok {
+						continue
+					}
+					sqls = append(sqls, s)
+				}
+				sf.SQLs = sqls
+			} else if VerEq(sf.Name, last) {
+				// schema_script_sql is emtpy, and the version is equal,
+				// we should just skip the script, the script has been executed already,
+				// before the newly created schema_script_sql.
+				continue
+			}
+		} else if VerEq(sf.Name, last) {
+			// not the last script, and the version is equal, skip
+			continue
 		}
-		if err := runSQLFile(db, log, c.App, content, sf.Name); err != nil {
+
+		if err := runSQLFile(db, log, c.App, sf.SQLs, sf.Name); err != nil {
 			return fmt.Errorf("failed to exec sql file %v, %w", sf.Name, err)
 		}
 	}
@@ -159,18 +209,10 @@ func sortSchemaFile(entries []schemaFile) {
 type schemaFile struct {
 	Name string
 	Path string
-	Fs   ReadFS
+	SQLs []string
 }
 
-func (sf schemaFile) Read() ([]byte, error) {
-	buf, err := sf.Fs.ReadFile(sf.Path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fs.ReadFile, %v, %w", sf.Path, err)
-	}
-	return buf, nil
-}
-
-func convertSchemaFiles(last string, files []fs.DirEntry, baseDir string, fs ReadFS) []schemaFile {
+func convertSchemaFiles(last string, files []fs.DirEntry, baseDir string, fs ReadFS) ([]schemaFile, error) {
 	filtered := make([]schemaFile, 0, len(files))
 	for _, f := range files {
 		if !f.Type().IsRegular() {
@@ -184,16 +226,38 @@ func convertSchemaFiles(last string, files []fs.DirEntry, baseDir string, fs Rea
 			continue
 		}
 
-		if last != "" && !VerAfter(name, last) {
+		if last != "" && !VerAfterEq(name, last) {
 			continue
 		}
+
+		path := baseDir + "/" + name
+		buf, err := fs.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fs.ReadFile, %v, %w", path, err)
+		}
+
+		contentStr := string(buf)
+		segments := strings.Split(contentStr, ";")
+
+		sqls := []string{}
+		for _, seg := range segments {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			sqls = append(sqls, seg)
+		}
+		if len(sqls) < 1 {
+			continue
+		}
+
 		filtered = append(filtered, schemaFile{
 			Name: name,
-			Path: baseDir + "/" + name,
-			Fs:   fs,
+			Path: path,
+			SQLs: sqls,
 		})
 	}
-	return filtered
+	return filtered, nil
 }
 
 type schemaVersion struct {
@@ -203,30 +267,29 @@ type schemaVersion struct {
 	Remark  string
 }
 
-func runSQLFile(db *gorm.DB, log Logger, app string, content []byte, fname string) error {
-	contentStr := string(content)
-	segments := strings.Split(contentStr, ";")
-
+func runSQLFile(db *gorm.DB, log Logger, app string, segments []string, fname string) error {
 	total := 0
-	for i, seg := range segments {
-		seg = strings.TrimSpace(seg)
-		if seg == "" {
-			continue
+	for i, sql := range segments {
+
+		// record that we have executed the sql regardless of whether it will succeed or not.
+		if err := db.Exec(`INSERT INTO schema_script_sql (app, script, sql_script) VALUES (?,?,?)`, app, fname, sql).Error; err != nil {
+			return fmt.Errorf("failed to save schema_script_sql, %v", err)
 		}
-		if err := db.Exec(seg).Error; err != nil {
+
+		if err := db.Exec(sql).Error; err != nil {
 			if er := saveSchemaVer(db, app, fname, false, err.Error()); er != nil {
-				log.Errorf("failed to save schema_version, %w", er)
+				log.Errorf("failed to save schema_version, %v", er)
 			}
-			return fmt.Errorf("failed to execute script, the %v segments, '%v', %w", i+1, seg, err)
+			return fmt.Errorf("failed to execute script, '%v', %w", sql, err)
 		} else {
-			log.Infof("'%v' - executed [%v]: \n\n%v\n", fname, i+1, seg)
+			log.Infof("'%v' - executed [%v]: \n\n%v\n", fname, i+1, sql)
 		}
 		total += 1
 	}
 	log.Infof("Script %v completed", fname)
 
-	if er := saveSchemaVer(db, app, fname, true, fmt.Sprintf("Executed %d SQLs", total)); er != nil {
-		log.Errorf("failed to save schema_version, %v, %w", fname, er)
+	if er := saveSchemaVer(db, app, fname, true, "Executed"); er != nil {
+		log.Errorf("failed to save schema_version, %v, %v", fname, er)
 	}
 	return nil
 }
@@ -236,6 +299,18 @@ func saveSchemaVer(db *gorm.DB, app string, script string, success bool, remark 
 	if len(rrm) > 255 {
 		rrm = rrm[:255]
 	}
+
+	// update schema_verion
+	var id int
+	t := db.Raw(`SELECT id FROM schema_version WHERE app = ? and script = ? LIMIT 1`, app, script).Scan(&id)
+	if err := t.Error; err != nil {
+		return err
+	}
+	if t.RowsAffected > 0 {
+		return db.Exec(`UPDATE schema_version SET success = ?, remark = ? WHERE id = ?`, success, string(rrm), id).Error
+	}
+
+	// save new schema_verion
 	return db.Exec(`INSERT INTO schema_version (app, script, success, remark) VALUES (?,?,?,?)`,
 		app, script, success, string(rrm)).Error
 }

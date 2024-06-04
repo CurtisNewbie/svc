@@ -17,13 +17,14 @@ func TestMigrate(t *testing.T) {
 	pw := ""
 	host := "localhost"
 	port := 3306
-	schema := "vfm"
+	schema := "tt"
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s%s", user, pw, host, port, schema, "")
 
 	conn, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	conn = conn.Debug()
 
 	conf := MigrateConfig{
 		App:     "test",
