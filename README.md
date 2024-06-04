@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS schema_script_sql (
     id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
     app VARCHAR(50) NOT NULL DEFAULT '',
     script VARCHAR(256) NOT NULL DEFAULT '',
-    sql_script TEXT,
+    stmt TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY app_idx (app, script)

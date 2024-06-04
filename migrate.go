@@ -81,7 +81,7 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 		app VARCHAR(50) NOT NULL DEFAULT '',
 		script VARCHAR(256) NOT NULL DEFAULT '',
-		sql_script TEXT,
+		stmt TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (id),
 		KEY app_idx (app, script)
@@ -162,7 +162,7 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		// for the last one, check whether there are new sqls being added to the script file (e.g., during development)
 		if i == len(schemaFiles)-1 {
 			var executed []string
-			if err := db.Raw(`SELECT sql_script FROM schema_script_sql WHERE app = ? and script = ?`, c.App, sf.Name).Scan(&executed).Error; err != nil {
+			if err := db.Raw(`SELECT stmt FROM schema_script_sql WHERE app = ? and script = ?`, c.App, sf.Name).Scan(&executed).Error; err != nil {
 				return err
 			}
 
@@ -273,7 +273,7 @@ func runSQLFile(db *gorm.DB, log Logger, app string, segments []string, fname st
 	for i, sql := range segments {
 
 		// record that we have executed the sql regardless of whether it will succeed or not.
-		if err := db.Exec(`INSERT INTO schema_script_sql (app, script, sql_script) VALUES (?,?,?)`, app, fname, sql).Error; err != nil {
+		if err := db.Exec(`INSERT INTO schema_script_sql (app, script, stmt) VALUES (?,?,?)`, app, fname, sql).Error; err != nil {
 			return fmt.Errorf("failed to save schema_script_sql, %v", err)
 		}
 
