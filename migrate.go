@@ -70,7 +70,8 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 		remark VARCHAR(256) NOT NULL DEFAULT '',
 		PRIMARY KEY (id),
 		KEY app_idx (app)
-	) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 comment='svc schema version';`)
+	) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 comment='svc schema version';
+	`)
 	if t.Error != nil {
 		return fmt.Errorf("failed to create schema_verion table, %w", t.Error)
 	}
