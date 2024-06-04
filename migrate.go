@@ -192,8 +192,10 @@ func MigrateSchema(db *gorm.DB, log Logger, c MigrateConfig) error {
 			continue
 		}
 
-		if err := runSQLFile(db, log, c.App, sf.SQLs, sf.Name); err != nil {
-			return fmt.Errorf("failed to exec sql file %v, %w", sf.Name, err)
+		if len(sf.SQLs) > 0 {
+			if err := runSQLFile(db, log, c.App, sf.SQLs, sf.Name); err != nil {
+				return fmt.Errorf("failed to exec sql file %v, %w", sf.Name, err)
+			}
 		}
 	}
 	return nil
