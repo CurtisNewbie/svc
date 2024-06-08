@@ -273,17 +273,21 @@ type schemaVersion struct {
 func runSQLFile(db *gorm.DB, log Logger, app string, segments []string, fname string) error {
 	total := 0
 	for i, sql := range segments {
+
+		// record the sql has been executed regardless of the result, if this statement fails
+		// the simplest way to fix the migration is to fix this specific statment manully,
+		// and update schema_version.success to '1', and then continue
+		if err := db.Exec(`INSERT INTO schema_script_sql (app, script, stmt) VALUES (?,?,?)`,
+			app, fname, sql).Error; err != nil {
+			return fmt.Errorf("failed to save schema_script_sql, %v", err)
+		}
+
 		if err := db.Exec(sql).Error; err != nil {
 			if er := saveSchemaVer(db, app, fname, false, err.Error()); er != nil {
 				log.Errorf("failed to save schema_version, %v", er)
 			}
 			return fmt.Errorf("failed to execute script, '%v', %w", sql, err)
 		} else {
-			// sql has been executed the sql, should not be executed again
-			if err := db.Exec(`INSERT INTO schema_script_sql (app, script, stmt) VALUES (?,?,?)`,
-				app, fname, sql).Error; err != nil {
-				return fmt.Errorf("failed to save schema_script_sql, %v", err)
-			}
 			log.Infof("'%v' - executed [%v]: \n\n%v\n", fname, i+1, sql)
 		}
 		total += 1
